@@ -1,1 +1,3 @@
 /sklearn-crash-course/creditcard.csv
+__pycache__/
+.DS_Store

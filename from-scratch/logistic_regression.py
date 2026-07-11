@@ -16,10 +16,14 @@ class LogisticRegression():
         self.b = None
         self.loss_history = []
 
-    def fit(self, X: np.ndarray, y: np.ndarray, C: int) -> "LogisticRegression":
-        X = np.asarray(X, dtype=float)
-        y = np.asarray(y, dtype=float).reshape(-1)
+    @staticmethod
+    def one_hot_Y(y: np.ndarray, C: int) -> np.ndarray:
+        one_hot_Y = np.zeros(shape=(y.shape[0], C))
+        one_hot_Y[np.arange(y.shape[0]), y] = 1
+        return one_hot_Y
 
+    @staticmethod
+    def validate_inputs(X: np.ndarray, y: np.ndarray):
         if X.ndim != 2:
             raise ValueError("X must be a 2D array.")
 
@@ -30,20 +34,28 @@ class LogisticRegression():
             raise ValueError(
                 "X and y must contain the same number of samples."
             )
+
+    def fit(self, X: np.ndarray, y: np.ndarray, C: int) -> "LogisticRegression":
+        X = np.asarray(X, dtype=float)
+        y = np.asarray(y, dtype=int).reshape(-1)
+        
+        Y_hot = self.one_hot_Y(y, C)
+
+        self.validate_inputs(X, y)
         
         n_features = X.shape[1]
     
         self.w = np.zeros(shape=(n_features, C), dtype=float)
-        self.b = np.zeros(C, dtype=float)
+        self.b = np.zeros(shape=(C), dtype=float)
         self.loss_history = []
 
         previous_loss = np.inf
 
         for _ in range(self.max_iter):
-            y_hat = self.predict(X)
-            loss = self.loss(y_hat, y)
+            y_pred = self.predict(X)
+            loss = self.loss(y_pred, y)
 
-            (grad_w, grad_b) = self.grad_loss(X, y_hat, y)
+            (grad_w, grad_b) = self.grad_loss(X, y_pred, Y_hot)
 
             self.w -= self.lr * grad_w
             self.b -= self.lr * grad_b
@@ -62,6 +74,8 @@ class LogisticRegression():
     def predict(self, X: np.ndarray) -> np.ndarray:
         logits = X @ self.w + self.b
 
+        logits -= np.max(logits, axis=1, keepdims=True)
+
         exp_logits = np.exp(logits)
         sum_rows = np.sum(exp_logits, axis=1, keepdims=True)
 
@@ -69,15 +83,15 @@ class LogisticRegression():
 
     
     @staticmethod
-    def loss(y_hat: np.ndarray, y: np.ndarray) -> float:
-        correct_class_probs = y_hat[np.arange(y.shape[0]), y]
+    def loss(y_pred: np.ndarray, y: np.ndarray) -> float:
+        correct_class_probs = y_pred[np.arange(y.shape[0]), y]
+        correct_prob_logged = np.log(correct_class_probs + 1e-15)
+        return -np.mean(correct_prob_logged)
 
-        return -np.mean(correct_class_probs + 1e-15)
-
-    def grad_loss(self, X, y_hat, y) -> tuple[np.ndarray, float]:    
-        error = y_hat - y
+    def grad_loss(self, X, y_pred, y_hot) -> tuple[np.ndarray, float]:    
+        error = y_pred - y_hot
 
         grad_w = X.T @ error / X.shape[0]
-        grad_b = np.mean(error)
+        grad_b = np.mean(error, axis=0)
 
         return grad_w, grad_b

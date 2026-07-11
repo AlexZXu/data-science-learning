@@ -11,6 +11,7 @@ class LinearRegression():
         self.max_iter = max_iter
         self.tol = tol
         self.reg = reg
+        self.delta = delta
         
         self.w = None
         self.b = None

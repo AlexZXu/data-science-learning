@@ -11,6 +11,7 @@ class LogisticRegression():
         self.max_iter = max_iter
         self.tol = tol
         self.reg = reg
+        self.delta = delta
         
         self.w = None
         self.b = None
@@ -91,7 +92,12 @@ class LogisticRegression():
     def grad_loss(self, X, y_pred, y_hot) -> tuple[np.ndarray, float]:    
         error = y_pred - y_hot
 
-        grad_w = X.T @ error / X.shape[0]
+        grad_w = X.T @ error / X.shape[0] 
         grad_b = np.mean(error, axis=0)
+
+        if self.reg == "l1":
+            grad_w += self.delta * np.sign(self.w)
+        elif self.reg == "l2":
+            grad_w += 2 * self.delta * self.w    
 
         return grad_w, grad_b

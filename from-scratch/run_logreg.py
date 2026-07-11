@@ -44,7 +44,8 @@ def main():
     model = LogisticRegression(
         lr=0.1,
         max_iter=10_000,
-        tol=1e-10
+        tol=1e-10,
+        reg="l2"
     )
 
     model.fit(X_train, y_train, C=3)

@@ -1,6 +1,13 @@
 import numpy as np
 
 class LogisticRegression():
+    """
+    lr: learning rate for gradient descent
+    max_iter: maximum training iterations before breaking out
+    tol: minimum loss decrease before we consider it "converged"
+    reg: type of regularization
+    delta: regularization factor constant
+    """
     def __init__(self,
                  lr: float=0.01, 
                  max_iter: int = 10_000,
@@ -17,12 +24,18 @@ class LogisticRegression():
         self.b = None
         self.loss_history = []
 
+    """
+    Method to one-hot-encode output vector y from a 1D vector to a num_samples X num_classes array.
+    """
     @staticmethod
     def one_hot_Y(y: np.ndarray, C: int) -> np.ndarray:
         one_hot_Y = np.zeros(shape=(y.shape[0], C))
         one_hot_Y[np.arange(y.shape[0]), y] = 1
         return one_hot_Y
 
+    """
+    Simple helper method to validate the dimensions of X and y
+    """
     @staticmethod
     def validate_inputs(X: np.ndarray, y: np.ndarray):
         if X.ndim != 2:
@@ -36,6 +49,10 @@ class LogisticRegression():
                 "X and y must contain the same number of samples."
             )
 
+    """
+    Fitting function. For logistic regression, we train C sets of weights and biases (C is the number of classes)
+    This way, we compute C different logit Z scores, and then convert them into probabilities using the softmax function.
+    """
     def fit(self, X: np.ndarray, y: np.ndarray, C: int) -> "LogisticRegression":
         X = np.asarray(X, dtype=float)
         y = np.asarray(y, dtype=int).reshape(-1)
@@ -82,13 +99,19 @@ class LogisticRegression():
 
         return exp_logits / sum_rows
 
-    
+    """
+    Calculating Loss. correct_class_probs selects only the correct class probability for each train sample.
+    The loss is the negative mean of the log of the probabilities
+    """
     @staticmethod
     def loss(y_pred: np.ndarray, y: np.ndarray) -> float:
         correct_class_probs = y_pred[np.arange(y.shape[0]), y]
         correct_prob_logged = np.log(correct_class_probs + 1e-15)
         return -np.mean(correct_prob_logged)
-
+    
+    """
+    Computing the gradient of the loss function is vectorized by X^T * (P - Y)
+    """
     def grad_loss(self, X, y_pred, y_hot) -> tuple[np.ndarray, float]:    
         error = y_pred - y_hot
 

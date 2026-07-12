@@ -2,11 +2,24 @@ import numpy as np
 from decision_tree import DecisionTree
 
 def main():
-    dt = DecisionTree()
+    X = np.array([
+        [1.0, 1.0],
+        [1.5, 2.0],
+        [2.0, 1.5],
+        [2.5, 2.5],
+        [6.0, 5.5],
+        [6.5, 6.0],
+        [7.0, 5.0],
+        [7.5, 6.5],
+    ])
 
-    print(DecisionTree.leaf_gini_impurity([2, 2, 1, 2, 3, 1, 1]))
+    y = np.array([0, 0, 0, 0, 1, 1, 1, 1])
 
-    print(DecisionTree.leaf_ssr([12.4, 53.4, 24.23, 69.4]))
+    tree = DecisionTree(X, y, max_depth=3)
+    root = tree.fit()
+
+    print(root.split_index)
+    print(root.split_value)
 
 if (__name__ == "__main__"):
     main()

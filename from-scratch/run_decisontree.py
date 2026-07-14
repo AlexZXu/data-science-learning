@@ -18,22 +18,7 @@ def main():
     tree = DecisionTree(X, y, max_depth=3)
     root = tree.fit()
 
-    print(root.split_index)
-    print(root.split_value)
 
-    leafs = [root]
-    next_leafs = []
-    depth = 1
-
-    while(len(leafs) != 0):
-        for leaf in leafs:
-            print(depth, (leaf.split_index, leaf.split_value))
-            if (leaf.children != None):
-                next_leafs.extend(leaf.children)
-        
-        leafs = next_leafs
-        next_leafs = []
-        depth += 1
 
 
 

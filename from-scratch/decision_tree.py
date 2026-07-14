@@ -21,7 +21,6 @@ class DecisionTree():
                 
                 left_data, right_data, split_index, split_value, f_left_y, f_right_y, lowest_impurity = self.iterate_possible_splits(leaf.X, leaf.y)
 
-                print(left_data, right_data, split_index, split_value, lowest_impurity)
                 if (current_impurity - lowest_impurity < 0.05):
                     continue
 
@@ -37,6 +36,7 @@ class DecisionTree():
                 new_leaves.extend([new_left_leaf, new_right_leaf])
 
             curr_leaves = new_leaves
+            new_leaves = []
 
         return self.root
 
@@ -93,7 +93,7 @@ class DecisionTree():
 
 
 class Node:
-    def __init__(self, X:np.ndarray=None, y=None, children=None, split_index=None, split_value=None, pred_class=None, is_leaf=True):
+    def __init__(self, X:np.ndarray=None, y=None, children:list[Node]=None, split_index=None, split_value=None, pred_class=None, is_leaf=True):
         self.X = X
         self.y = y
         self.children = children

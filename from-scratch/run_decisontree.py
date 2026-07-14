@@ -21,5 +21,21 @@ def main():
     print(root.split_index)
     print(root.split_value)
 
+    leafs = [root]
+    next_leafs = []
+    depth = 1
+
+    while(len(leafs) != 0):
+        for leaf in leafs:
+            print(depth, (leaf.split_index, leaf.split_value))
+            if (leaf.children != None):
+                next_leafs.extend(leaf.children)
+        
+        leafs = next_leafs
+        next_leafs = []
+        depth += 1
+
+
+
 if (__name__ == "__main__"):
     main()

@@ -18,7 +18,6 @@ class Node:
         self.pred_class = None
         self.is_leaf = True
 
-
 class DecisionTree:
     def __init__(self, max_depth: int = 8, min_impurity_decrease: float = 0.05):
         self.max_depth = max_depth

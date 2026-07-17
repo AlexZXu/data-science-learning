@@ -150,9 +150,6 @@ class DecisionTree:
             else:
                 node = node.right
 
-            if node is None:
-                raise RuntimeError("Tree structure is incomplete.")
-
         return node.pred_class
 
     @staticmethod
@@ -165,3 +162,12 @@ class DecisionTree:
     @staticmethod
     def ssr(y: np.ndarray) -> float:
         return np.sum((y - np.mean(y)) ** 2)
+    
+    @staticmethod
+    def score(y_true, y_pred):
+        if len(y_true) != len(y_pred):
+            raise ValueError("y_true and y_pred must have the same length")
+        if len(y_true) == 0:
+            raise ValueError("y_true and y_pred must not be empty")
+
+        return sum(a == b for a, b in zip(y_true, y_pred)) / len(y_true)

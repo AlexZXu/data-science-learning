@@ -12,17 +12,33 @@ class Neuron():
         return self.w @ X + self.b
 
 class Layer():
-    def __init__(self, nin, nout):
+    def __init__(self, nin, nout, actfunc="linear"):
         self.neurons = [Neuron(nin) for _ in range(nout)]
-        self._actfunc = lambda x: x
-        self.actfunc_grad = 1
+        self.obtain_actfunc(actfunc)
 
         # updated in forward pass
         self.input_x = np.zeros(nin, dtype=float)
         self.unnormalized_outputs = np.zeros(nout, dtype=float)
 
+    def obtain_actfunc(self, actfunc):
+        if (actfunc == "linear"):
+            self._actfunc = lambda x: x
+            self.actfunc_grad = lambda x: np.ones_like(x)
+        if (actfunc == "relu"):
+            self._actfunc = lambda x: np.maximum(0, x)
+            self.actfunc_grad = lambda x: (x > 0).astype(float)
+        if (actfunc == "sigmoid"):
+            def sigmoid(x):
+                return 1.0 / (1.0 + np.exp(-x))
+            self._actfunc = lambda x: sigmoid(x)
+            self.actfunc_grad = lambda x: sigmoid(x) * (1.0 - sigmoid(x))
+        if (actfunc == "tanh"):
+            self._actfunc = lambda x: np.tanh(x)
+            self.actfunc_grad = lambda x: 1.0 - np.tanh(x)**2
+  
+
     def compute_grad(self, out_grad):
-        grad = self.actfunc_grad * out_grad  # (dOut / dJ) * (dJ / wx+b (unnormalized outputs))
+        grad = self.actfunc_grad(self.unnormalized_outputs) * out_grad  # (dOut / dJ) * (dJ / wx+b (unnormalized outputs))
 
         curr_grad = np.zeros_like(self.input_x, dtype=float)
 
@@ -49,11 +65,11 @@ class Layer():
         return output
 
 class MLP():
-    def __init__(self, layer_dims: list[int]):
+    def __init__(self, layer_dims: list[int], actfunc_list: list[str]):
         self.layers : list[Layer] = []
 
         for i in range(1, len(layer_dims)):
-            curr_layer = Layer(layer_dims[i - 1], layer_dims[i])
+            curr_layer = Layer(layer_dims[i - 1], layer_dims[i], actfunc_list[i - 1])
             self.layers.append(curr_layer)
 
     def forward(self, input_data):
@@ -83,22 +99,25 @@ class MLP():
     def grad_descent(self):
         for layer in self.layers:
             for neuron in layer.neurons:
-                neuron.w -= 0.001 * neuron.grad_w
-                neuron.b -= 0.001 * neuron.grad_b
+                neuron.w -= 0.01 * neuron.grad_w
+                neuron.b -= 0.01 * neuron.grad_b
 
 
 input_data = np.array([5.0, 8.0], dtype=float)
-mlp = MLP([2, 4, 4, 1])
-output_data = np.array([5.0], dtype=float)
+actfunc_list = ["relu", "tanh", "linear"]
+mlp = MLP([2, 4, 4, 1], actfunc_list)
+output_data = np.array([7.0], dtype=float)
 
 # loop
 for _ in range(50):
     out = mlp.forward(input_data)
 
-    loss = out - output_data
-    print("Curr Error:", loss)
+    error = out - output_data
+    loss = 0.5 * np.sum(error ** 2)
 
-    prev_grad = mlp.backward(loss)
+    print("Output:", out, "Loss:", loss)
+
+    mlp.backward(error)
     mlp.grad_descent()
 
     # upd zero grad

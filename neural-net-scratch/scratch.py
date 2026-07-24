@@ -1,5 +1,5 @@
-import numpy as np
 import random
+import numpy as np
 
 class Neuron():
     def __init__(self, nin):

@@ -1,6 +1,12 @@
 import random
 import numpy as np
 
+y_true : np.ndarray
+
+"""
+NN CLASSES AND BACKPROP GRADIENTS
+"""
+
 class Neuron():
     def __init__(self, nin):
         self.w = np.random.randn(nin) / np.sqrt(nin)
@@ -35,7 +41,11 @@ class Layer():
         if (actfunc == "tanh"):
             self._actfunc = lambda x: np.tanh(x)
             self.actfunc_grad = lambda x: 1.0 - np.tanh(x)**2
-  
+        if (actfunc == "softmax"):
+            def softmax(x):
+                return np.exp(x) / np.sum(np.exp(x))
+            self._actfunc = lambda x: softmax(x)
+            self.actfunc_grad = lambda x: softmax(x) - y_true
 
     def compute_grad(self, out_grad):
         grad = self.actfunc_grad(self.unnormalized_outputs) * out_grad  # (dOut / dJ) * (dJ / wx+b (unnormalized outputs))
@@ -102,22 +112,50 @@ class MLP():
                 neuron.w -= 0.01 * neuron.grad_w
                 neuron.b -= 0.01 * neuron.grad_b
 
+"""
+LOSS FUNCTIONS
+"""
+
+def MSEError(out: np.array):
+    loss_grad = out - output_data
+    loss = 0.5 * np.sum((out - output_data) ** 2)
+
+    return loss_grad, loss
+
+# FIX THIS LATER
+def LogLossError(out: np.array):
+    # 1 because the gradient is ingested with the final softmax layer gradient
+    loss_grad = 1 
+
+    loss = 0
+    for i in range(len(output_data)):
+        loss += -np.log(out[i]) if output_data[i]==1.0 else 0.0
+
+    return loss_grad, loss
+
+
+"""
+RUNNING MODEL
+"""
 
 input_data = np.array([5.0, 8.0], dtype=float)
-actfunc_list = ["relu", "tanh", "linear"]
-mlp = MLP([2, 4, 4, 1], actfunc_list)
-output_data = np.array([7.0], dtype=float)
+actfunc_list = ["relu", "tanh", "softmax"]
+mlp = MLP([2, 40, 40, 10], actfunc_list)
+output_data = np.array([1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=float)
+
+y_true = output_data
+
 
 # loop
-for _ in range(50):
+for i in range(50):
     out = mlp.forward(input_data)
 
-    error = out - output_data
-    loss = 0.5 * np.sum(error ** 2)
+    loss_grad, loss = LogLossError(out)
 
+    print("Epoch:", i)
     print("Output:", out, "Loss:", loss)
 
-    mlp.backward(error)
+    mlp.backward(loss_grad)
     mlp.grad_descent()
 
     # upd zero grad

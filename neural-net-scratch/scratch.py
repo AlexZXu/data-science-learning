@@ -1,5 +1,9 @@
 import random
 import numpy as np
+import idx2numpy
+import numpy as np
+import matplotlib.pyplot as plt
+import math
 
 y_true : np.ndarray
 
@@ -43,7 +47,9 @@ class Layer():
             self.actfunc_grad = lambda x: 1.0 - np.tanh(x)**2
         if (actfunc == "softmax"):
             def softmax(x):
-                return np.exp(x) / np.sum(np.exp(x))
+                shifted_x = x - np.max(x)
+                exp_x = np.exp(shifted_x)
+                return exp_x / np.sum(exp_x)
             self._actfunc = lambda x: softmax(x)
             self.actfunc_grad = lambda x: softmax(x) - y_true
 
@@ -106,30 +112,30 @@ class MLP():
                 neuron.grad_w = np.zeros(len(neuron.grad_w), dtype=float)
                 neuron.grad_b = 0
 
-    def grad_descent(self):
+    def grad_descent(self, batch_size=1):
         for layer in self.layers:
             for neuron in layer.neurons:
-                neuron.w -= 0.01 * neuron.grad_w
-                neuron.b -= 0.01 * neuron.grad_b
+                neuron.w -= 0.001 * (neuron.grad_w / batch_size)
+                neuron.b -= 0.001 * (neuron.grad_b / batch_size)
 
 """
 LOSS FUNCTIONS
 """
 
-def MSEError(out: np.array):
-    loss_grad = out - output_data
-    loss = 0.5 * np.sum((out - output_data) ** 2)
+def MSEError(pred: np.array, true: np.array):
+    loss_grad = pred - true
+    loss = 0.5 * np.sum((pred - true) ** 2)
 
     return loss_grad, loss
 
 # FIX THIS LATER
-def LogLossError(out: np.array):
+def LogLossError(pred: np.array, true: np.ndarray):
     # 1 because the gradient is ingested with the final softmax layer gradient
     loss_grad = 1 
 
     loss = 0
-    for i in range(len(output_data)):
-        loss += -np.log(out[i]) if output_data[i]==1.0 else 0.0
+    for i in range(len(true)):
+        loss += -np.log(pred[i] + 0.001) if true[i]==1.0 else 0.0
 
     return loss_grad, loss
 
@@ -138,25 +144,46 @@ def LogLossError(out: np.array):
 RUNNING MODEL
 """
 
-input_data = np.array([5.0, 8.0], dtype=float)
-actfunc_list = ["relu", "tanh", "softmax"]
-mlp = MLP([2, 40, 40, 10], actfunc_list)
-output_data = np.array([1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=float)
 
-y_true = output_data
+traindata = 'neural-net-scratch\\train-images-idx3-ubyte'
+labeldata = 'neural-net-scratch\\train-labels-idx1-ubyte'
+
+imagearr = idx2numpy.convert_from_file(traindata)
+imagearr_flattened = imagearr.reshape(imagearr.shape[0], -1).astype(np.float32) / 255.0
+
+labelarr = idx2numpy.convert_from_file(labeldata)
+
+actfunc_list = ["relu", "relu", "softmax"]
+mlp = MLP([784, 128, 64, 10], actfunc_list)
 
 
 # loop
-for i in range(50):
-    out = mlp.forward(input_data)
+# for epoch in range(50):
 
-    loss_grad, loss = LogLossError(out)
+batch_size = 32
+running_loss = 0.0
+for epoch in range(20):
+    for i in range(0, len(imagearr), batch_size):
+        in_batch = imagearr_flattened[i:i+batch_size]
+        out_batch = labelarr[i:i+batch_size]
 
-    print("Epoch:", i)
-    print("Output:", out, "Loss:", loss)
+        for in_data, out_data in zip(in_batch, out_batch):
+            y_true = np.zeros(10)
+            y_true[int(out_data)] = 1.0
 
-    mlp.backward(loss_grad)
-    mlp.grad_descent()
+            out = mlp.forward(in_data)
+            loss_grad, loss = LogLossError(out, y_true)
+            running_loss += loss
+            mlp.backward(loss_grad)
 
-    # upd zero grad
-    mlp.zero_grad()
+        mlp.grad_descent(len(in_batch))
+
+        # upd zero grad
+        mlp.zero_grad()
+
+        print(f"Batch {i/32}/{math.ceil(len(imagearr)/batch_size)} complete")
+
+    running_loss /= math.ceil(len(imagearr)/batch_size) # number of batches
+
+    print(f"Epoch {i+1}: {running_loss}")
+

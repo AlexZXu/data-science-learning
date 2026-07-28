@@ -141,12 +141,12 @@ def LogLossError(pred: np.array, true: np.ndarray):
 
 
 """
-RUNNING MODEL
+TRAINING MODEL
 """
 
 
-traindata = 'neural-net-scratch\\train-images-idx3-ubyte'
-labeldata = 'neural-net-scratch\\train-labels-idx1-ubyte'
+traindata = 'neural-net-scratch/train-images-idx3-ubyte'
+labeldata = 'neural-net-scratch/train-labels-idx1-ubyte'
 
 imagearr = idx2numpy.convert_from_file(traindata)
 imagearr_flattened = imagearr.reshape(imagearr.shape[0], -1).astype(np.float32) / 255.0
@@ -162,8 +162,10 @@ mlp = MLP([784, 128, 64, 10], actfunc_list)
 
 batch_size = 32
 running_loss = 0.0
-for epoch in range(20):
+for epoch in range(10):
+    running_loss = 0.0
     for i in range(0, len(imagearr), batch_size):
+        batch_loss = 0.0
         in_batch = imagearr_flattened[i:i+batch_size]
         out_batch = labelarr[i:i+batch_size]
 
@@ -173,17 +175,46 @@ for epoch in range(20):
 
             out = mlp.forward(in_data)
             loss_grad, loss = LogLossError(out, y_true)
-            running_loss += loss
+            batch_loss += loss
             mlp.backward(loss_grad)
 
+        batch_loss /= batch_size
         mlp.grad_descent(len(in_batch))
-
         # upd zero grad
         mlp.zero_grad()
 
-        print(f"Batch {i/32}/{math.ceil(len(imagearr)/batch_size)} complete")
+        running_loss += batch_loss
+
+        # print(f"Batch {i/32}/{math.ceil(len(imagearr)/batch_size)} complete")
 
     running_loss /= math.ceil(len(imagearr)/batch_size) # number of batches
 
-    print(f"Epoch {i+1}: {running_loss}")
+    print(f"Epoch {epoch+1}: {running_loss}")
 
+
+"""
+TESTING MODEL
+"""
+
+testdata = 'neural-net-scratch/t10k-images-idx3-ubyte'
+testlabels = 'neural-net-scratch/t10k-labels-idx1-ubyte'
+
+
+testarr = idx2numpy.convert_from_file(testdata)
+testarr_flattened = testarr.reshape(testarr.shape[0], -1).astype(np.float32) / 255.0
+
+testlabels = idx2numpy.convert_from_file(testlabels)
+
+correct_cnt = 0
+
+for img, label in zip(testarr_flattened, testlabels):
+    pred_probs = mlp.forward(img)
+    pred_class = np.argmax(pred_probs)
+    true_class = int(label)
+
+    if (pred_class == true_class):
+        correct_cnt += 1
+
+accuracy = correct_cnt / len(testlabels)
+print(correct_cnt, len(testlabels))
+print(accuracy)

@@ -42,6 +42,7 @@ for epoch in range(20):
         optimizer.zero_grad()
 
         pred = model(data)
+        print(pred.shape, targets.shape)
         loss = criterion(pred, targets)
 
         loss.backward()

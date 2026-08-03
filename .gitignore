@@ -2,3 +2,4 @@
 __pycache__/
 .DS_Store
 /cnns/cifar-10
+/cnn-yolo/coco128

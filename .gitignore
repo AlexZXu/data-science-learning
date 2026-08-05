@@ -3,4 +3,4 @@ __pycache__/
 .DS_Store
 /cnns/cifar-10
 /cnn-yolo/coco128
-/cnn-yolo/yolov1.pt
+/cnn-yolo/attempt1/yolov1.pt

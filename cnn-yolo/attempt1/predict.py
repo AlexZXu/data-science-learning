@@ -1,11 +1,3 @@
-"""Run a trained YOLOv1 checkpoint on images and draw the detections.
-
-Examples:
-    python predict.py                              # a few COCO128 samples the model trained on
-    python predict.py path/to/photo.jpg            # one new image
-    python predict.py some_dir --conf 0.15         # every image in a directory
-    python predict.py --truth                      # overlay ground truth for comparison
-"""
 
 from __future__ import annotations
 

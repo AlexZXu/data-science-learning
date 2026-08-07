@@ -8,7 +8,9 @@ Run:  python yolov1.py
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import argparse
+import time
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import torch
@@ -29,17 +31,31 @@ C = 80 # COCO classes
 IMG_SIZE = 448
 CELL_VECTOR = C + B * 5  # per-cell prediction length: [classes..., (conf, x, y, w, h) * B]
 
-DATA_ROOT = Path(__file__).parent / "coco128"
+DATA_ROOT = Path(__file__).resolve().parents[1] / "coco128"  # cnn-yolo/coco128, next to attempt1/
+
+
+def pick_device(requested: str | None = None) -> torch.device:
+    """cuda > mps (Apple silicon) > cpu, unless a device is named explicitly."""
+    if requested:
+        return torch.device(requested)
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
 
 
 @dataclass
 class TrainConfig:
-    epochs: int = 50
+    # 128 images / batch 8 = 16 steps per epoch, so "50 epochs" is only 800 updates --
+    # nowhere near enough to train 284M parameters from scratch. See the note in train().
+    epochs: int = 150
     batch_size: int = 8
     lr: float = 1e-4
     weight_decay: float = 5e-4
-    num_workers: int = 4
-    device: str = "cuda" if torch.cuda.is_available() else "cpu"
+    grad_clip: float = 10.0
+    num_workers: int = 2
+    device: torch.device = field(default_factory=pick_device)
 
 
 # --------------------------------------------------------------------------------------
@@ -90,7 +106,9 @@ class Coco128Dataset(Dataset):
         target = torch.zeros(S, S, C + 5)
 
         for class_id, cx, cy, w, h in boxes:
-            col, row = int(cx * S), int(cy * S)  # cell that owns this box
+            # min() guards a centre sitting exactly on the right/bottom edge (cx == 1.0),
+            # which would otherwise index cell S and raise.
+            col, row = min(int(cx * S), S - 1), min(int(cy * S), S - 1)  # cell that owns this box
             if target[row, col, C] == 1:
                 continue  # cell already taken: YOLOv1 simply cannot predict both
 
@@ -132,7 +150,12 @@ class ConvBlock(nn.Module):
 
 
 class YOLOv1(nn.Module):
-    def __init__(self, hidden: int = 4096, dropout: float = 0.5):
+    """The paper's head is Linear(50176, 4096), i.e. 224M of the model's 284M weights --
+    80% of the network is a fully connected layer being fitted to 128 images. Shrinking it
+    to 1024 and dropping the 0.5 dropout costs nothing here and makes the thing actually
+    converge; restore hidden=4096, dropout=0.5 if you ever train on full COCO."""
+
+    def __init__(self, hidden: int = 1024, dropout: float = 0.0):
         super().__init__()
         self.backbone = self._build_backbone()
         self.head = nn.Sequential(
@@ -176,8 +199,13 @@ class YOLOv1(nn.Module):
 
 
 def to_corners(boxes: torch.Tensor) -> torch.Tensor:
-    """(..., 4) midpoint boxes (x, y, w, h) -> corner boxes (x1, y1, x2, y2)."""
-    xy, wh = boxes[..., :2], boxes[..., 2:4]
+    """(..., 4) midpoint boxes (x, y, w, h) -> corner boxes (x1, y1, x2, y2).
+
+    w/h are clamped at 0 first: the head is unactivated, so an untrained net happily emits
+    a negative width, which would give x2 < x1 -- a box torchvision's NMS treats as having
+    negative area and IoU never suppresses. Clamping collapses it to an empty box instead.
+    """
+    xy, wh = boxes[..., :2], boxes[..., 2:4].clamp(min=0)
     return torch.cat([xy - wh / 2, xy + wh / 2], dim=-1)
 
 
@@ -191,7 +219,7 @@ def iou(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     overlap = (x2 - x1).clamp(min=0) * (y2 - y1).clamp(min=0)
     area_a = (a[..., 2] - a[..., 0]) * (a[..., 3] - a[..., 1])
     area_b = (b[..., 2] - b[..., 0]) * (b[..., 3] - b[..., 1])
-    return overlap / (area_a.abs() + area_b.abs() - overlap + 1e-6)
+    return overlap / (area_a + area_b - overlap + 1e-6)
 
 
 def to_image_frame(boxes: torch.Tensor) -> torch.Tensor:
@@ -235,9 +263,11 @@ class YOLOLoss(nn.Module):
         best_box = ious.argmax(dim=-1, keepdim=True)                      # (N, S, S, 1)
         responsible = F.one_hot(best_box.squeeze(-1), B) * has_object     # (N, S, S, B)
 
-        # Localisation: sqrt on w/h so a fixed error matters more on small boxes.
-        # The prediction is unconstrained, so keep the sign to stay differentiable at 0.
-        pred_wh = pred_xywh[..., 2:].sign() * pred_xywh[..., 2:].abs().sqrt()
+        # Localisation: sqrt on w/h so a fixed error matters more on small boxes. The
+        # prediction is unconstrained, so keep the sign; the epsilon matters because
+        # d/dx sqrt(|x|) blows up as x -> 0, and a width drifting through zero would
+        # otherwise fire an unbounded gradient straight into the head.
+        pred_wh = pred_xywh[..., 2:].sign() * (pred_xywh[..., 2:].abs() + 1e-6).sqrt()
         box_error = (pred_xywh[..., :2] - true_xywh[..., :2]).pow(2).sum(-1) \
                     + (pred_wh - true_xywh[..., 2:].sqrt()).pow(2).sum(-1)
         box_loss = (responsible * box_error).sum()
@@ -280,7 +310,10 @@ def decode(predictions: torch.Tensor, conf_threshold: float = 0.25,
         corners.flatten(1, 3), scores.flatten(1, 3),
         best_class.unsqueeze(-1).expand(-1, -1, -1, B).flatten(1, 3),
     ):
-        keep = image_scores > conf_threshold
+        # Empty boxes (clamped-away negative w/h, or a box entirely outside the frame)
+        # score just like real ones but cover nothing, and NMS cannot suppress them.
+        areas = (image_boxes[:, 2] - image_boxes[:, 0]) * (image_boxes[:, 3] - image_boxes[:, 1])
+        keep = (image_scores > conf_threshold) & (areas > 0)
         image_boxes, image_scores, image_classes = (
             image_boxes[keep], image_scores[keep], image_classes[keep])
 
@@ -300,13 +333,45 @@ def decode(predictions: torch.Tensor, conf_threshold: float = 0.25,
 # --------------------------------------------------------------------------------------
 
 
+@torch.no_grad()
+def recalibrate_batchnorm(model: nn.Module, loader: DataLoader, device: torch.device) -> None:
+    """Recompute every BatchNorm's running mean/var as an exact average over the dataset.
+
+    The running stats are an EMA of batch statistics, and at batch_size 8 they trail the
+    weights badly: a freshly trained checkpoint here scored 15.9 in train() mode but 24.2
+    in eval() mode, which is exactly the "training looked fine, predictions are garbage"
+    symptom. momentum=None switches BatchNorm to a cumulative average, so one clean pass
+    over the data replaces the EMA with the real thing.
+    """
+    norms = [m for m in model.modules() if isinstance(m, nn.BatchNorm2d)]
+    for norm in norms:
+        norm.reset_running_stats()
+        norm.momentum = None
+
+    model.train()
+    for images, _ in loader:
+        model(images.to(device, non_blocking=True))
+
+    for norm in norms:
+        norm.momentum = 0.1
+    model.eval()
+
+
 def train(config: TrainConfig = TrainConfig()) -> YOLOv1:
+    """Fits the 128-image sample set. This is a pipeline sanity check, not a detector:
+    with no pretrained backbone and 128 images covering 71 of the 80 classes, the best
+    honest outcome is memorising the training set. If the loss plateaus well above ~2 the
+    bug is in the setup; if it drops near 0 and predictions still look wrong, the bug is
+    in decode()."""
+    dataset = Coco128Dataset(DATA_ROOT)
     loader = DataLoader(
-        Coco128Dataset(DATA_ROOT),
+        dataset,
         batch_size=config.batch_size,
         shuffle=True,
         num_workers=config.num_workers,
-        pin_memory=True,
+        # pin_memory only helps CUDA's host->device copies; on MPS it just warns.
+        pin_memory=config.device.type == "cuda",
+        persistent_workers=config.num_workers > 0,
     )
 
     model = YOLOv1().to(config.device)
@@ -314,9 +379,13 @@ def train(config: TrainConfig = TrainConfig()) -> YOLOv1:
     optimizer = torch.optim.Adam(model.parameters(), lr=config.lr,
                                  weight_decay=config.weight_decay)
 
+    steps = config.epochs * len(loader)
+    print(f"{len(dataset)} images on {config.device} — {len(loader)} steps/epoch, "
+          f"{steps} updates total")
+
     model.train()
     for epoch in range(1, config.epochs + 1):
-        running_loss = 0.0
+        running_loss, started = 0.0, time.time()
 
         for images, targets in loader:
             images = images.to(config.device, non_blocking=True)
@@ -325,15 +394,35 @@ def train(config: TrainConfig = TrainConfig()) -> YOLOv1:
             loss = criterion(model(images), targets)
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
+            # The loss sums squared errors over 49 cells, so early batches can produce
+            # gradients big enough to knock the net into a constant-output collapse.
+            nn.utils.clip_grad_norm_(model.parameters(), config.grad_clip)
             optimizer.step()
 
             running_loss += loss.item() * images.shape[0]
 
-        print(f"epoch {epoch:3d}/{config.epochs}  loss {running_loss / len(loader.dataset):.4f}")
+        print(f"epoch {epoch:3d}/{config.epochs}  loss {running_loss / len(dataset):.4f}"
+              f"  ({time.time() - started:.1f}s)")
 
+    recalibrate_batchnorm(model, loader, config.device)
     return model
 
 
+def parse_args() -> TrainConfig:
+    defaults = TrainConfig()
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--epochs", type=int, default=defaults.epochs)
+    parser.add_argument("--batch-size", type=int, default=defaults.batch_size)
+    parser.add_argument("--lr", type=float, default=defaults.lr)
+    parser.add_argument("--num-workers", type=int, default=defaults.num_workers)
+    parser.add_argument("--device", default=None, help="cpu, cuda, mps (default: auto)")
+    args = parser.parse_args()
+
+    return TrainConfig(epochs=args.epochs, batch_size=args.batch_size, lr=args.lr,
+                       num_workers=args.num_workers, device=pick_device(args.device))
+
+
 if __name__ == "__main__":
-    model = train()
+    model = train(parse_args())
     torch.save(model.state_dict(), Path(__file__).parent / "yolov1.pt")

@@ -3,12 +3,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import TensorDataset
 from dset import process_dataset
-from pathlib import Path
 import PIL.Image as Image
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-import math
 
 S = 7  # grid size
 B = 2  # boxes predicted per cell
@@ -51,7 +49,7 @@ class YoloModel(nn.Module):
         self.backbone = self._create_backbone()
 
         dropout = 0.1
-        hidden = 512
+        hidden = 1024
 
         self.head = nn.Sequential(
             nn.Flatten(),
@@ -99,11 +97,11 @@ class YoloLoss(nn.Module):
     def forward(self, predictions : torch.Tensor, targets: torch.Tensor):
         """
         Predictions has shape (B, S, S, CELL_VECTOR)
-        Targets has shape (..., 7)
+        Targets has shape (..., 5)
         """
 
 
-def modify_test_labels(test_labels: np.ndarray):
+def modify_test_labels(test_labels: np.ndarray) -> torch.Tensor:
     """
     Converts test labels of shape (..., 5) that have:
     - Class
@@ -143,8 +141,41 @@ def modify_test_labels(test_labels: np.ndarray):
             delete_indexes.append(i)
 
     test_labels = np.delete(test_labels, delete_indexes, axis=0)
-    return test_labels
+    return torch.tensor(test_labels)
 
+def convert_to_box_corners(box_data: torch.Tensor) -> torch.Tensor:
+    """
+    Box data is: (Class, X Grid Index, Y Grid Index, Relative X Index, Relative Y Index, W, H)
+    Dim: (..., 7)
+
+    Outputs: 
+    [
+    (Top Left X, Top Left Y),
+    (Bottom Right X, Bottom Right Y)
+    ]
+    Dim: Tensor(2, 2)
+    """
+
+    w = box_data[5] * IMG_SIZE
+    h = box_data[6] * IMG_SIZE
+
+    top_left_X = (box_data[1] + box_data[3]) * IMG_SIZE / S - w / 2
+    top_left_Y = (box_data[2] + box_data[4]) * IMG_SIZE / S - h / 2
+
+    bottom_right_X = (box_data[1] + box_data[3]) * IMG_SIZE / S + w / 2
+    bottom_right_Y = (box_data[2] + box_data[4]) * IMG_SIZE / S + h / 2
+
+    corners_tensor = torch.tensor(
+        [[top_left_X, top_left_Y],
+         [bottom_right_X, bottom_right_Y]],
+        dtype=torch.float32
+    )
+
+    return corners_tensor
+
+
+def compute_iou(corner_tensor_1: torch.Tensor, corner_tensor_2: torch.Tensor) -> float:
+    ...
 
 """
 TEST DATASET LOAD
@@ -166,13 +197,18 @@ modified_labels = modify_test_labels(test_label)
 label_i = 0
 
 for l in modified_labels:
-    print(l)
-    c_x = (l[1] + l[3]) * IMG_SIZE / S
-    c_y = (l[2] + l[4]) * IMG_SIZE / S
+    corner_ls = convert_to_box_corners(l)
 
-    w = l[5] * IMG_SIZE
-    h = l[6] * IMG_SIZE
-    rect = patches.Rectangle((c_x - w/2, c_y - h/2), w, h, linewidth=2, edgecolor='r', facecolor='none')
+    # Computing using original data
+    # c_x = (l[1] + l[3]) * IMG_SIZE / S
+    # c_y = (l[2] + l[4]) * IMG_SIZE / S
+
+    # w = l[5] * IMG_SIZE
+    # h = l[6] * IMG_SIZE
+
+    # print(c_x - w / 2, c_y - h / 2)
+
+    rect = patches.Rectangle((corner_ls[0, 0], corner_ls[0, 1]), corner_ls[1, 0] - corner_ls[0, 0], corner_ls[1, 1] - corner_ls[0, 1], linewidth=2, edgecolor='r', facecolor='none')
     ax.add_patch(rect)    
 
 plt.show()

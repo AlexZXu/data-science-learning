@@ -11,12 +11,12 @@ from matplotlib.patches import Rectangle
 from PIL import Image
 from torchvision.transforms import functional as TF
 
-from yolov1 import B, C, IMG_SIZE, S, YOLOv1, decode
+from yolov1 import B, C, DATA_ROOT, IMG_SIZE, S, YOLOv1, decode, pick_device
 
 HERE = Path(__file__).parent
 DEFAULT_WEIGHTS = HERE / "yolov1.pt"
-SAMPLE_DIR = HERE / "coco128" / "images" / "train2017"
-LABEL_DIR = HERE / "coco128" / "labels" / "train2017"
+SAMPLE_DIR = DATA_ROOT / "images" / "train2017"
+LABEL_DIR = DATA_ROOT / "labels" / "train2017"
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 
 # COCO class ids as they appear in the YOLO-format labels (0-79, no background class).
@@ -74,8 +74,10 @@ def load_model(weights: Path, device: torch.device) -> YOLOv1:
     if not weights.exists():
         raise FileNotFoundError(f"{weights} not found — train first with `python yolov1.py`")
 
-    model = YOLOv1()
-    model.load_state_dict(torch.load(weights, map_location="cpu"))
+    state = torch.load(weights, map_location="cpu")
+    # Read the head width out of the checkpoint so older/wider checkpoints still load.
+    model = YOLOv1(hidden=state["head.1.weight"].shape[0])
+    model.load_state_dict(state)
     return model.to(device).eval()
 
 
@@ -167,7 +169,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--weights", type=Path, default=DEFAULT_WEIGHTS)
     parser.add_argument("--conf", type=float, default=0.25, help="confidence threshold")
     parser.add_argument("--iou", type=float, default=0.5, help="NMS IoU threshold")
-    parser.add_argument("--limit", type=int, default=6,
+    parser.add_argument("--limit", type=int, default=10,
                         help="max images to run (0 = no limit)")
     parser.add_argument("--device", default=None, help="cpu, cuda, mps (default: auto)")
     parser.add_argument("--truth", action="store_true",
@@ -177,16 +179,6 @@ def parse_args() -> argparse.Namespace:
                         help="where to write the figure")
     parser.add_argument("--no-show", action="store_true", help="save without opening a window")
     return parser.parse_args()
-
-
-def pick_device(requested: str | None) -> torch.device:
-    if requested:
-        return torch.device(requested)
-    if torch.cuda.is_available():
-        return torch.device("cuda")
-    if torch.backends.mps.is_available():
-        return torch.device("mps")
-    return torch.device("cpu")
 
 
 def main() -> None:

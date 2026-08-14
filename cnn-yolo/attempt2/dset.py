@@ -30,7 +30,6 @@ def load_labels(label_path: Path) -> np.ndarray:
 
 
 def process_dataset(image_dir: Path = IMAGE_DIR, label_dir: Path = LABEL_DIR):
-    
     image_paths = sorted(p for p in image_dir.iterdir() if p.suffix.lower() in IMG_EXTS)
     if not image_paths:
         raise FileNotFoundError(f"no images found in {image_dir}")
@@ -51,7 +50,8 @@ def process_dataset(image_dir: Path = IMAGE_DIR, label_dir: Path = LABEL_DIR):
     if unlabelled:
         print(f"{unlabelled}/{len(image_paths)} images have no labels (kept with empty boxes)")
 
-    images = torch.from_numpy(np.stack(image_arr)).float()
+    # scale to [0, 1] -- raw 0-255 pixels blow up the first conv's gradients
+    images = torch.from_numpy(np.stack(image_arr)).float() / 255.0
     return images, label_arr
 
 
@@ -61,5 +61,5 @@ if __name__ == "__main__":
     data, labels = process_dataset()
     print(data.shape, len(labels))
 
-    plt.imshow(Image.fromarray(data[0].numpy().astype("uint8")))
+    plt.imshow(Image.fromarray((data[0].numpy() * 255).astype("uint8")))
     plt.show()

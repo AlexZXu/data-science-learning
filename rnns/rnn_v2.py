@@ -96,7 +96,7 @@ def main():
 
             optimizer.zero_grad()
 
-            logits, _ = model(x)                                   # (B, T, V)
+            logits, _ = model(x)
             loss = criterion(logits.reshape(-1, dict_size), y.reshape(-1))
             loss.backward()
 
@@ -109,8 +109,7 @@ def main():
                 print(f"epoch {epoch} step {step} loss {loss.item():.4f}")
 
         avg = running_loss / len(loader)
-        print(f"epoch {epoch} done | avg loss {avg:.4f} | "
-              f"perplexity {torch.exp(torch.tensor(avg)).item():.1f}")
+        print(f"epoch {epoch} done | avg loss {avg:.4f}")
 
         model_cpu = model.to("cpu")
         print(generate(model_cpu, vocab, word_map, prompt=tokens[0]))
